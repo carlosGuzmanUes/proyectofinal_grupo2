@@ -1,92 +1,89 @@
 ; ============================================================
 ; Proyecto 2: Captura y Transpuesta de Matriz 3x3
-; Ensamblador: NASM x86 (32 bits) - Linux
-; Compilar : nasm -f elf32 matriz_transpuesta.asm -o mt.o
-; Enlazar  : ld -m elf_i386 mt.o -o mt
-; Ejecutar : ./mt
+; NASM x86 32 bits - Linux
+; Compilar: nasm -f elf32 matriz_transpuesta.asm -o mt.o
+; Enlazar : ld -m elf_i386 mt.o -o mt
+; Ejecutar: ./mt
 ; ============================================================
  
 section .data
  
-    ; --- Mensajes generales ---
-    msg_titulo      db  "====================================", 10
-                    db  "  TRANSPUESTA DE MATRIZ 3x3", 10
-                    db  "====================================", 10, 0
-    msg_titulo_len  equ $ - msg_titulo
+    ; --- Mensajes (longitudes calculadas sin el byte nulo final) ---
+    msg_titulo      db  "====================================", 10,
+                    db  "  TRANSPUESTA DE MATRIZ 3x3", 10,
+                    db  "====================================", 10
+    LEN_TITULO      equ $ - msg_titulo
  
-    msg_ingreso     db  10, "--- Ingreso de elementos ---", 10, 0
-    msg_ingreso_len equ $ - msg_ingreso
+    msg_ingreso     db  10, "--- Ingreso de elementos ---", 10
+    LEN_INGRESO     equ $ - msg_ingreso
  
-    msg_elemento    db  "Ingrese M[", 0
-    msg_elemento_len equ $ - msg_elemento
+    msg_elem1       db  "Ingrese M["
+    LEN_ELEM1       equ $ - msg_elem1
  
-    msg_fila        db  0           ; se sobreescribe con el digito de fila
-    msg_fila_len    equ 1
+    msg_coma        db  "]["
+    LEN_COMA        equ $ - msg_coma
  
-    msg_coma        db  "][", 0
-    msg_coma_len    equ $ - msg_coma
+    msg_cierre      db  "]: "
+    LEN_CIERRE      equ $ - msg_cierre
  
-    msg_col         db  0           ; se sobreescribe con el digito de columna
-    msg_col_len     equ 1
+    msg_error       db  "  ERROR: Solo digitos 0-9. Intente de nuevo.", 10
+    LEN_ERROR       equ $ - msg_error
  
-    msg_cierre      db  "]: ", 0
-    msg_cierre_len  equ $ - msg_cierre
+    msg_original    db  10, "--- Matriz Original ---", 10
+    LEN_ORIGINAL    equ $ - msg_original
  
-    msg_error       db  "  *** ERROR: Solo se aceptan digitos (0-9). Intente de nuevo.", 10, 0
-    msg_error_len   equ $ - msg_error
+    msg_transp      db  10, "--- Matriz Transpuesta ---", 10
+    LEN_TRANSP      equ $ - msg_transp
  
-    msg_original    db  10, "--- Matriz Original ---", 10, 0
-    msg_original_len equ $ - msg_original
+    msg_espacio     db  "  "
+    LEN_ESPACIO     equ $ - msg_espacio
  
-    msg_transpuesta db  10, "--- Matriz Transpuesta ---", 10, 0
-    msg_transpuesta_len equ $ - msg_transpuesta
+    msg_newline     db  10
+    LEN_NEWLINE     equ 1
  
-    msg_espacio     db  "  ", 0
-    msg_espacio_len equ $ - msg_espacio
+    msg_fin         db  10, "====================================", 10,
+                    db  "  Operacion completada.", 10,
+                    db  "====================================", 10
+    LEN_FIN         equ $ - msg_fin
  
-    msg_newline     db  10, 0
-    msg_newline_len equ 1
- 
-    msg_fin         db  10, "====================================", 10
-                    db  "  Operacion completada.", 10
-                    db  "====================================", 10, 0
-    msg_fin_len     equ $ - msg_fin
- 
-    char_fila       db  0           ; buffer para mostrar numero de fila
-    char_col        db  0           ; buffer para mostrar numero de columna
+    ; buffers de un caracter para impresion
+    buf_fila        db  0
+    buf_col         db  0
+    buf_digito      db  0
  
 section .bss
- 
-    matriz          resb 9          ; Matriz original  [3][3] (1 byte por elemento)
-    transpuesta     resb 9          ; Matriz transpuesta[3][3]
-    input_buf       resb 32         ; buffer de entrada del teclado
-    input_len       resd 1          ; longitud leída
+    matriz          resb 9      ; [3][3] - fila mayor
+    transpuesta_m   resb 9      ; [3][3] traspuesta
+    input_buf       resb 4      ; buffer de entrada (digito + Enter + extra)
+    bytes_leidos    resd 1
+    fila_idx        resb 1      ; fila actual (0-2)
+    col_idx         resb 1      ; col actual  (0-2)
  
 ; ============================================================
 ; MACROS
 ; ============================================================
  
-; MACRO: imprimir cadena terminada en 0
+; Imprimir: direccion y longitud
 %macro PRINT 2
-    mov eax, 4          ; sys_write
-    mov ebx, 1          ; stdout
-    mov ecx, %1         ; puntero
-    mov edx, %2         ; longitud
+    mov eax, 4
+    mov ebx, 1
+    mov ecx, %1
+    mov edx, %2
     int 0x80
 %endmacro
  
-; MACRO: leer teclado en buffer, max %2 bytes
-%macro READ_INPUT 2
-    mov eax, 3          ; sys_read
-    mov ebx, 0          ; stdin
-    mov ecx, %1         ; buffer destino
-    mov edx, %2         ; max bytes
+; Leer teclado
+%macro LEER 2
+    mov eax, 3
+    mov ebx, 0
+    mov ecx, %1
+    mov edx, %2
     int 0x80
-    mov [input_len], eax
+    mov [bytes_leidos], eax
 %endmacro
  
-; MACRO: salida del programa
-%macro EXIT 1
+; Salir del programa
+%macro SALIR 1
     mov eax, 1
     mov ebx, %1
     int 0x80
@@ -97,186 +94,149 @@ section .text
 global _start
  
 ; ============================================================
-; ETIQUETA PRINCIPAL
-; ============================================================
 _start:
-    PRINT msg_titulo, msg_titulo_len
-    PRINT msg_ingreso, msg_ingreso_len
+    PRINT msg_titulo,   LEN_TITULO
+    PRINT msg_ingreso,  LEN_INGRESO
+    call  capturar_matriz
  
-    ; --- Captura de elementos ---
-    call capturar_matriz
+    PRINT msg_original, LEN_ORIGINAL
+    call  imprimir_original
  
-    ; --- Mostrar matriz original ---
-    PRINT msg_original, msg_original_len
-    call mostrar_matriz_original
+    call  calcular_transpuesta
  
-    ; --- Calcular transpuesta ---
-    call calcular_transpuesta
+    PRINT msg_transp,   LEN_TRANSP
+    call  imprimir_transpuesta
  
-    ; --- Mostrar transpuesta ---
-    PRINT msg_transpuesta, msg_transpuesta_len
-    call mostrar_matriz_transpuesta
- 
-    PRINT msg_fin, msg_fin_len
-    EXIT 0
+    PRINT msg_fin,      LEN_FIN
+    SALIR 0
  
 ; ============================================================
 ; SUBRUTINA: capturar_matriz
-; Recorre i=0..2, j=0..2 y pide cada elemento con validación
 ; ============================================================
 capturar_matriz:
     push ebp
     mov  ebp, esp
     push esi
     push edi
-    push ebx
  
-    xor esi, esi            ; esi = fila (i)
+    xor esi, esi                ; esi = fila (0..2)
  
-.loop_fila:
+.fila:
     cmp esi, 3
-    jge .fin_captura
+    jge .fin
  
-    xor edi, edi            ; edi = columna (j)
+    xor edi, edi                ; edi = columna (0..2)
  
-.loop_col:
+.columna:
     cmp edi, 3
-    jge .siguiente_fila
+    jge .prox_fila
  
-    ; Mostrar "Ingrese M[i][j]: "
+    ; guardar indices en memoria (evita usar sil/dil que no existen en 32b)
+    mov  eax, esi
+    mov  [fila_idx], al
+    mov  eax, edi
+    mov  [col_idx], al
+ 
     call mostrar_prompt
  
-.pedir_valor:
-    READ_INPUT input_buf, 32
+.reintentar:
+    LEER input_buf, 4
+    call validar_digito         ; retorna EAX = 0..9, o -1 si invalido
  
-    ; Validar entrada
-    call validar_entrada
-    cmp eax, 0
-    je  .error_entrada
+    cmp eax, -1
+    je  .fallo
  
-    ; Guardar dígito en matriz[i*3+j]
-    ; EAX ya contiene el valor numérico (0-9) desde validar_entrada
-    ; Calculamos índice: esi*3 + edi
-    push eax
-    mov  eax, esi
-    mov  ebx, 3
-    imul ebx
-    add  eax, edi
-    mov  ebx, eax
+    ; guardar en matriz[esi*3 + edi]
+    push eax                    ; conservar el valor
+    mov  ebx, esi
+    imul ebx, 3
+    add  ebx, edi               ; ebx = indice
     pop  eax
-    mov  [matriz + ebx], al
+    mov  [matriz + ebx], al     ; guardar byte
  
     inc edi
-    jmp .loop_col
+    jmp .columna
  
-.error_entrada:
-    PRINT msg_error, msg_error_len
-    jmp .pedir_valor
+.fallo:
+    PRINT msg_error, LEN_ERROR
+    jmp  .reintentar
  
-.siguiente_fila:
+.prox_fila:
     inc esi
-    jmp .loop_fila
+    jmp .fila
  
-.fin_captura:
-    pop ebx
+.fin:
     pop edi
     pop esi
     pop ebp
     ret
  
 ; ============================================================
-; SUBRUTINA: mostrar_prompt
-; Imprime "Ingrese M[i][j]: " usando esi (fila) y edi (col)
+; SUBRUTINA: mostrar_prompt  -> "Ingrese M[f][c]: "
 ; ============================================================
 mostrar_prompt:
     push eax
-    push ebx
-    push ecx
-    push edx
  
-    PRINT msg_elemento, msg_elemento_len
+    PRINT msg_elem1, LEN_ELEM1
  
-    ; Imprimir número de fila (esi+1 para base-1, o esi para base-0)
-    mov  al, sil
-    add  al, '1'                ; mostrar 1-based
-    mov  [char_fila], al
-    PRINT char_fila, 1
+    movzx eax, byte [fila_idx]
+    add   al, '1'               ; mostrar en base 1
+    mov   [buf_fila], al
+    PRINT buf_fila, 1
  
-    PRINT msg_coma, msg_coma_len
+    PRINT msg_coma, LEN_COMA
  
-    ; Imprimir número de columna
-    mov  al, dil
-    add  al, '1'
-    mov  [char_col], al
-    PRINT char_col, 1
+    movzx eax, byte [col_idx]
+    add   al, '1'
+    mov   [buf_col], al
+    PRINT buf_col, 1
  
-    PRINT msg_cierre, msg_cierre_len
+    PRINT msg_cierre, LEN_CIERRE
  
-    pop edx
-    pop ecx
-    pop ebx
     pop eax
     ret
  
 ; ============================================================
-; SUBRUTINA: validar_entrada
-; Analiza input_buf con longitud [input_len]
-; Acepta: un dígito '0'-'9' seguido de Enter (o solo Enter -> rechaza)
-; Retorna: EAX = valor numérico (0-9) si válido
-;          EAX = 0 (y ZF=1 por cmp eax,0 en el llamador)  si inválido
-; NOTA: para distinguir el dígito '0' válido se usa la etiqueta .valido
+; SUBRUTINA: validar_digito
+; Lee input_buf y bytes_leidos
+; Retorna EAX = valor numerico (0-9) si valido
+;         EAX = -1 si invalido
 ; ============================================================
-validar_entrada:
-    push ebx
+validar_digito:
     push ecx
  
-    mov  ecx, [input_len]   ; longitud leída
+    mov  ecx, [bytes_leidos]
+ 
+    ; sys_read devuelve 0 si EOF (Ctrl+D)
     cmp  ecx, 0
-    je   .invalido
+    je   .mal
  
-    ; El buffer termina en 0x0A (Enter); la longitud incluye ese byte
-    ; Aceptamos exactamente 1 dígito + Enter (longitud == 2)
-    ; o solo el dígito sin Enter si longitud == 1
-    cmp  ecx, 1
-    je   .un_byte
-    cmp  ecx, 2
-    je   .dos_bytes
-    jmp  .invalido           ; más de 2 bytes -> inválido (número de varios dígitos)
- 
-.dos_bytes:
-    ; Verificar que el segundo byte sea Enter
-    movzx eax, byte [input_buf + 1]
-    cmp  al, 0x0A
-    jne  .invalido
- 
-.un_byte:
+    ; Primer caracter debe ser digito '0'-'9'
     movzx eax, byte [input_buf]
-    cmp  al, '0'
-    jl   .invalido
-    cmp  al, '9'
-    jg   .invalido
+    cmp   al, '0'
+    jl    .mal
+    cmp   al, '9'
+    jg    .mal
  
-    sub  al, '0'            ; convertir ASCII a número
-    ; Si el número es 0 retornamos 10 para diferenciarlo del fallo
-    ; (el llamador sólo chequea cmp eax,0)
-    cmp  al, 0
-    jne  .retornar
-    mov  al, 10             ; código especial: dígito '0' válido
+    ; Si llegaron mas de 2 bytes: el usuario escribio algo como "12\n"
+    ; -> rechazar (solo aceptamos un digito)
+    cmp  ecx, 2
+    jg   .mal           ; mas de digito+Enter -> invalido
  
-.retornar:
+    ; Puede ser 1 byte (digito sin Enter, raro) o 2 bytes (digito+Enter)
+    ; En ambos casos el primer byte ya paso la validacion de arriba
+    sub  al, '0'         ; convertir ASCII -> numero
     pop  ecx
-    pop  ebx
     ret
  
-.invalido:
-    xor  eax, eax           ; retorna 0 = inválido
-    pop  ecx
-    pop  ebx
+.mal:
+    ; Vaciar el resto del buffer si quedaron bytes sin leer
+    mov eax, -1
+    pop ecx
     ret
  
 ; ============================================================
-; SUBRUTINA: calcular_transpuesta
-; T[j][i] = M[i][j]   para i,j en 0..2
+; SUBRUTINA: calcular_transpuesta  T[j][i] = M[i][j]
 ; ============================================================
 calcular_transpuesta:
     push esi
@@ -285,38 +245,38 @@ calcular_transpuesta:
     push ebx
     push ecx
  
-    xor esi, esi            ; i
+    xor esi, esi                ; i (fila original)
  
-.loop_i:
+.li:
     cmp esi, 3
-    jge .fin_transpuesta
+    jge .ft
  
-    xor edi, edi            ; j
+    xor edi, edi                ; j (columna original)
  
-.loop_j:
+.lj:
     cmp edi, 3
-    jge .sig_i
+    jge .si
  
-    ; src  = matriz[i*3+j]
+    ; leer M[i][j]
     mov  eax, esi
     imul eax, 3
     add  eax, edi
     movzx ecx, byte [matriz + eax]
  
-    ; dst  = transpuesta[j*3+i]
+    ; escribir T[j][i]
     mov  eax, edi
     imul eax, 3
     add  eax, esi
-    mov  [transpuesta + eax], cl
+    mov  [transpuesta_m + eax], cl
  
     inc edi
-    jmp .loop_j
+    jmp .lj
  
-.sig_i:
+.si:
     inc esi
-    jmp .loop_i
+    jmp .li
  
-.fin_transpuesta:
+.ft:
     pop ecx
     pop ebx
     pop eax
@@ -325,90 +285,85 @@ calcular_transpuesta:
     ret
  
 ; ============================================================
-; SUBRUTINA: mostrar_fila_matriz
-; ESI = puntero base a la matriz, EDI = índice de fila (0-2)
+; SUBRUTINA: imprimir_fila
+; Parametros via pila: [esp+4]=puntero base, [esp+8]=nro fila
 ; ============================================================
-mostrar_fila_matriz:
+imprimir_fila:
+    push ebp
+    mov  ebp, esp
     push eax
     push ebx
     push ecx
-    push edx
  
-    ; Calcular base de la fila: ESI + EDI*3
+    mov  esi, [ebp + 8]         ; puntero base de la matriz
+    mov  edi, [ebp + 12]        ; numero de fila
+ 
     mov  eax, edi
     imul eax, 3
-    add  eax, esi           ; EAX = puntero al primer elemento de la fila
+    add  esi, eax               ; esi -> primer elemento de la fila
  
-    mov  ecx, 0             ; contador de columna
+    ; usamos EDI como contador de columna (ECX es destruido por int 0x80)
+    xor edi, edi                ; columna = 0
  
-.col_loop:
-    cmp  ecx, 3
-    jge  .fin_fila
+.loop:
+    cmp edi, 3
+    jge .fin_fila
  
-    movzx ebx, byte [eax + ecx]
-    ; Si almacenamos 10 para el dígito '0', convertir de vuelta
-    cmp  ebx, 10
-    jne  .no_cero
-    xor  ebx, ebx
+    movzx eax, byte [esi + edi]
+    add   al, '0'
+    mov   [buf_digito], al
+    PRINT buf_digito, 1
+    PRINT msg_espacio, LEN_ESPACIO
  
-.no_cero:
-    add  bl, '0'
-    mov  [char_col], bl
-    PRINT char_col, 1
-    PRINT msg_espacio, msg_espacio_len
- 
-    inc ecx
-    jmp .col_loop
+    inc edi
+    jmp .loop
  
 .fin_fila:
-    PRINT msg_newline, msg_newline_len
-    pop edx
+    PRINT msg_newline, LEN_NEWLINE
     pop ecx
     pop ebx
     pop eax
+    pop ebp
     ret
  
 ; ============================================================
-; SUBRUTINA: mostrar_matriz_original
+; SUBRUTINA: imprimir_original
 ; ============================================================
-mostrar_matriz_original:
-    push esi
-    push edi
+imprimir_original:
+    push ebx
+    xor  ebx, ebx
  
-    mov  esi, matriz
-    xor  edi, edi
+.loop:
+    cmp ebx, 3
+    jge .fin
+    push ebx            ; segundo parametro: numero de fila
+    push matriz         ; primer parametro: puntero base
+    call imprimir_fila
+    add  esp, 8
+    inc  ebx
+    jmp  .loop
  
-.fila_loop_orig:
-    cmp  edi, 3
-    jge  .fin_orig
-    call mostrar_fila_matriz
-    inc  edi
-    jmp  .fila_loop_orig
- 
-.fin_orig:
-    pop edi
-    pop esi
+.fin:
+    pop ebx
     ret
  
 ; ============================================================
-; SUBRUTINA: mostrar_matriz_transpuesta
+; SUBRUTINA: imprimir_transpuesta
 ; ============================================================
-mostrar_matriz_transpuesta:
-    push esi
-    push edi
+imprimir_transpuesta:
+    push ebx
+    xor  ebx, ebx
  
-    mov  esi, transpuesta
-    xor  edi, edi
+.loop:
+    cmp ebx, 3
+    jge .fin
+    push ebx            ; segundo parametro: numero de fila
+    push transpuesta_m  ; primer parametro: puntero base
+    call imprimir_fila
+    add  esp, 8
+    inc  ebx
+    jmp  .loop
  
-.fila_loop_trans:
-    cmp  edi, 3
-    jge  .fin_trans
-    call mostrar_fila_matriz
-    inc  edi
-    jmp  .fila_loop_trans
- 
-.fin_trans:
-    pop edi
-    pop esi
+.fin:
+    pop ebx
     ret
- 
