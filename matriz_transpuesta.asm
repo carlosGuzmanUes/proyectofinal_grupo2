@@ -1,4 +1,3 @@
-triz transpuesta · ASM
 ; ============================================================
 ; Proyecto 2: Captura y Transpuesta de Matriz 3x3
 ; Ensamblador: NASM x86 (32 bits) - Linux
